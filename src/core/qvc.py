@@ -33,3 +33,8 @@ class ActionVector:
     target_velocity: Vector3
     # Could also include force, torque, etc. in a more complex model.
     force: float = 0.0
+
+@dataclass
+class Goal:
+    """Represents a target destination for the system."""
+    target_position: Vector3

@@ -1,82 +1,74 @@
-from src.core.qvc import SystemState, Vector3
+from src.core.qvc import SystemState, Vector3, Goal
 from src.ethical.constitution import ConstitutionalKnowledgeBase, MaxVelocityRule, ForbiddenZoneRule
 from src.ethical.failsafe import ProjectFailsafe
 from src.physical.robot import Robot
+from src.cognitive.planner import CognitivePlanner
 
-def run_simulation():
+def run_simulation_step(planner: CognitivePlanner, robot: Robot, goal: Goal, failsafe: ProjectFailsafe):
     """
-    Runs the main simulation to demonstrate the Ethical Matrix and Project Failsafe.
+    Runs a single step of the goal-oriented simulation.
     """
-    print("--- Initializing Chronos Prototype Simulation ---")
+    print(f"\n--- Robot at {robot.state.position} ---")
+    # 1. Cognitive Vector proposes an action based on the goal
+    action = planner.generate_action(robot.state, goal)
+
+    # 2. Ethical Matrix validates the action
+    is_safe = failsafe.validate_action(robot.state, action)
+    print(f"FAILSAFE validation result: {'SAFE' if is_safe else 'UNSAFE'}")
+
+    # 3. Physical system executes the action ONLY if it's safe
+    if is_safe:
+        robot.update_state(action)
+    else:
+        print("ACTION ABORTED by Failsafe. Robot holds position.")
+        # In a real system, the planner would be notified of the failure
+        # and would need to generate a new plan. For this demo, we just stop.
+
+    return is_safe
+
+def main():
+    """
+    Runs the main simulation to demonstrate the interaction between the
+    Cognitive Planner and the Ethical Matrix.
+    """
+    print("--- Initializing Chronos Prototype: Cognitive & Ethical Integration ---")
 
     # 1. Define the Constitution (The Ethical Rules)
+    # The Failsafe will reject any action with velocity > 1.0
+    # or any action that leads into the zone [4:8, 4:8, 0:5]
     constitution = ConstitutionalKnowledgeBase(rules=[
-        MaxVelocityRule(max_velocity=1.5),
+        MaxVelocityRule(max_velocity=1.0),
         ForbiddenZoneRule(
-            min_corner=Vector3(x=5.0, y=5.0, z=0.0),
-            max_corner=Vector3(x=10.0, y=10.0, z=5.0)
+            min_corner=Vector3(x=4.0, y=4.0, z=0.0),
+            max_corner=Vector3(x=8.0, y=8.0, z=5.0)
         )
     ])
-    print(f"Constitution loaded with {len(constitution.rules)} rules.")
-
-    # 2. Initialize Project Failsafe with the constitution
     failsafe = ProjectFailsafe(constitution=constitution)
-    print("Project Failsafe is active.")
 
-    # 3. Initialize the Robot (The Physical System)
-    initial_state = SystemState(
-        position=Vector3(x=0.0, y=0.0, z=0.0),
-        velocity=Vector3(x=0.0, y=0.0, z=0.0)
-    )
-    robot = Robot(initial_state=initial_state)
+    # 2. Initialize the Cognitive Planner
+    # The planner's speed is set to 0.9, which is compliant with the
+    # Failsafe's max_velocity rule of 1.0. This allows the robot to move
+    # until it encounters the forbidden zone.
+    planner = CognitivePlanner(max_speed=0.9)
 
-    # --- SCENARIO 1: A SAFE ACTION ---
-    print("\n--- SCENARIO 1: Proposing a SAFE action ---")
-    safe_action = robot.propose_action(target_velocity=Vector3(x=1.0, y=0.5, z=0.0))
+    # 3. Initialize the Robot
+    robot = Robot(initial_state=SystemState(position=Vector3(x=0, y=0, z=0), velocity=Vector3()))
 
-    # The Ethical Matrix validates the action
-    is_safe = failsafe.validate_action(robot.state, safe_action)
-    print(f"Failsafe validation result: {'SAFE' if is_safe else 'UNSAFE'}")
+    # 4. Define a Goal
+    # This goal is on the other side of the forbidden zone.
+    goal = Goal(target_position=Vector3(x=10, y=10, z=0))
+    print(f"Goal set to: {goal.target_position}")
 
-    if is_safe:
-        robot.update_state(safe_action)
-    else:
-        print("Robot action aborted.")
-    print(f"Final robot state: {robot.state}")
-
-    # --- SCENARIO 2: AN UNSAFE ACTION (TOO FAST) ---
-    print("\n--- SCENARIO 2: Proposing an UNSAFE action (violates max velocity) ---")
-    unsafe_action_fast = robot.propose_action(target_velocity=Vector3(x=2.0, y=1.0, z=0.0))
-
-    is_safe = failsafe.validate_action(robot.state, unsafe_action_fast)
-    print(f"Failsafe validation result: {'SAFE' if is_safe else 'UNSAFE'}")
-
-    if is_safe:
-        robot.update_state(unsafe_action_fast)
-    else:
-        print("Robot action aborted.")
-    print(f"Final robot state: {robot.state}")
-
-
-    # --- SCENARIO 3: AN UNSAFE ACTION (ENTERING FORBIDDEN ZONE) ---
-    print("\n--- SCENARIO 3: Proposing an UNSAFE action (enters forbidden zone) ---")
-    # This action has a safe velocity (magnitude ~1.486 < 1.5) but would move the robot
-    # from its current position of (1.0, 0.5, 0.0) to (6.0, 6.0, 0.0) in 5 time steps,
-    # which is inside the forbidden zone [5:10, 5:10, 0:5].
-    unsafe_action_zone = robot.propose_action(target_velocity=Vector3(x=1.0, y=1.1, z=0.0))
-
-    # We check the action over a longer time horizon (5 seconds) to see the violation.
-    is_safe = failsafe.validate_action(robot.state, unsafe_action_zone, dt=5.0)
-    print(f"Failsafe validation result (predicting 5.0s ahead): {'SAFE' if is_safe else 'UNSAFE'}")
-
-    if is_safe:
-        # This block should not be executed.
-        print("ERROR: Unsafe action was approved.")
-        robot.update_state(unsafe_action_zone)
-    else:
-        print("Robot action correctly aborted by Failsafe.")
-    print(f"Final robot state (unchanged): {robot.state}")
-
+    # --- Run Simulation ---
+    # The simulation will run for a few steps. The planner will try to move
+    # directly towards the goal, but the Failsafe will block it as it
+    # approaches the forbidden zone.
+    for i in range(10):
+        print(f"\n--- Simulation Step {i+1} ---")
+        is_safe = run_simulation_step(planner, robot, goal, failsafe)
+        if not is_safe:
+            print("\nSimulation halted due to Failsafe intervention.")
+            break
 
 if __name__ == "__main__":
-    run_simulation()
+    main()

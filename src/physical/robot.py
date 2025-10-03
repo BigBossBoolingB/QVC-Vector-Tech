@@ -21,11 +21,3 @@ class Robot:
         self.state.position = Vector3.from_array(new_position_arr)
 
         print(f"Robot moved to {self.state.position} with velocity {self.state.velocity}")
-
-    def propose_action(self, target_velocity: Vector3) -> ActionVector:
-        """
-        The robot's 'intent' or 'cognitive' part proposes an action.
-        In a real system, this would come from a complex planning module.
-        """
-        print(f"\nRobot proposes to move with velocity: {target_velocity}")
-        return ActionVector(target_velocity=target_velocity)
